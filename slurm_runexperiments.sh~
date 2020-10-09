@@ -1,0 +1,154 @@
+#!/bin/sh
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=64G
+#SBATCH -p gpu
+#SBATCH -t 38:00:00
+#SBATCH --gres=gpu:v100:1
+#SBATCH --ntasks-per-node=1
+#SBATCH --account=Project_2002026
+#SBATCH -o /scratch/project_2002026/cnn/multiling-cnn/pretty/slurm-log/bert-%j.out
+#SBATCH -e /scratch/project_2002026/cnn/multiling-cnn/pretty/slurm-log/bert-%j.err
+
+echo "START: $(date)"
+
+module purge
+module load tensorflow
+source /scratch/project_2002026/multilabel_bert/neuro_classifier/multilabel/VENV3/bin/activate
+
+
+#module load keras
+#module load keras_bert
+#from keras import bert
+
+export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+export OUTPUT_DIR=/scratch/project_2002026/cnn/multiling-cnn/pretty/output
+
+mkdir -p "$OUTPUT_DIR"
+
+export EVALSET=dev    # set to "test" for final experiments, otherwise dev
+
+
+set -euo pipefail
+
+export SCRIPT="$(basename "$0")"
+# https://stackoverflow.com/a/246128
+#export SCRIPTDIR="$( cd "$( dirname "$0" )" >/dev/null 2>&1 && pwd )"
+#export SCRIPTDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+export SCRIPTDIR=/scratch/project_2002026/cnn/multiling-cnn/pretty
+
+export WVDIR="$SCRIPTDIR/../wordvecs"
+export DATADIR=/scratch/project_2002026/cnn/multiling-cnn/fasttext/2level
+
+
+export MODELDIR="$SCRIPTDIR/models"
+export RESULTDIR="$SCRIPTDIR/results"
+
+# Parameters
+EPOCHS=15
+MAX_WORDS=100000
+#WORD_VECS="fi:$WVDIR/wiki.multi.fi.vec,en:$WVDIR/wiki.multi.en.vec"
+
+export WORD_VECS="en:$WVDIR/wiki.multi.en.vec"
+
+
+mkdir -p "$MODELDIR"
+mkdir -p "$RESULTDIR"
+
+
+# Finnish w/subsets
+#total=$(wc -l < "$DATADIR/fi-train.ft")
+#for p in `seq 10 10 100`; do
+#    lines=$((p*total/100));
+#    shuf "$DATADIR/fi-train.ft" | head -n $lines \
+#        > "$DATADIR/fi-train-${p}p.ft" || true
+
+#    python3 "$SCRIPTDIR/trainmlcnn.py" \#
+#	    --epochs "$EPOCHS" \
+#	    --limit "$MAX_WORDS" \#
+#	    --word-vectors "$WORD_VECS" \
+#	    --input "fi:$DATADIR/fi-train-${p}p.ft" \
+#	    --output "$MODELDIR/fi-${p}p.model"
+
+#    python3 "$SCRIPTDIR/testmlcnn.py" \
+#	    "$MODELDIR/fi-${p}p.model" \
+#	    "fi:$DATADIR/fi-${EVALSET}.ft" \
+#	| tee -a "$RESULTDIR/fi-${p}p.txt"
+#done
+
+
+#for p in `seq 10 10 100`; do
+#    python3 "$SCRIPTDIR/trainmlcnn.py" \
+#	    --epochs "$EPOCHS" \#
+#	    --limit "$MAX_WORDS" \
+#	    --word-vectors "$WORD_VECS" \
+#	    --input "fi:$DATADIR/fi-train-${p}p.ft,en:$DATADIR/en-train.ft" \
+#	    --output "$MODELDIR/combo-${p}p.model"
+
+#    python3 "$SCRIPTDIR/testmlcnn.py" \
+#	    "$MODELDIR/combo-${p}p.model" \
+#	    "fi:$DATADIR/fi-${EVALSET}.ft" \
+#	| tee -a "$RESULTDIR/combo-fi-${p}p.txt"
+#done
+
+# Finnish
+#python3 "$SCRIPTDIR/trainmlcnn.py" \
+#	--epochs "$EPOCHS" \
+#	--limit "$MAX_WORDS" \
+#	--word-vectors "$WORD_VECS" \
+#	--input "fi:$DATADIR/fi-train.ft" \
+#	--output "$MODELDIR/fi.model"
+
+#python3 "$SCRIPTDIR/testmlcnn.py" \
+#	"$MODELDIR/fi.model" \
+#	"fi:$DATADIR/fi-${EVALSET}.ft" \
+#    | tee -a "$RESULTDIR/fi.txt"
+
+
+# English
+for l in {0.0001,0.001,0.003}; #,0.005,0.006}; 
+do
+for t in {0.4,0.5,0.6} #,0.4,0.5,0.6}
+
+do python3 "$SCRIPTDIR/trainml_multilabel_cnn.py" \
+    --epochs "$EPOCHS" \
+    --limit "$MAX_WORDS" \
+    --learning_rate $l \
+    --word-vectors "$WORD_VECS" \
+    --input "en:$DATADIR/train.tsv" \
+    --output "$MODELDIR/en.model" \
+    --validation "en:$DATADIR/dev.tsv" \
+    --predictions "$DATADIR/predictions.txt" \
+    --threshold $t \
+    --kernel-size 2
+done
+done
+#        -v "en:$DATADIR/dev.tsv"
+
+
+
+#python3 "$SCRIPTDIR/testmlcnn.py" \
+#	"$MODELDIR/en.model" \
+#	"en:$DATADIR/${EVALSET}.tsv" \
+#    | tee -a "$RESULTDIR/en.txt"
+
+
+# English -> Finnish
+#python3 "$SCRIPTDIR/testmlcnn.py" \
+#	"$MODELDIR/en.model" \
+#	"fi:$DATADIR/fi-${EVALSET}.ft" \
+ #   | tee -a "$RESULTDIR/en-fi.txt"
+
+
+# English+Finnish -> Finnish
+#python3 "$SCRIPTDIR/trainmlcnn.py" \
+#	--epochs "$EPOCHS" \
+#	--limit "$MAX_WORDS" \
+#	--word-vectors "$WORD_VECS" \
+#	--input "fi:$DATADIR/fi-train.ft,en:$DATADIR/en-train.ft" \
+#	--output "$MODELDIR/combo.model"
+
+#python3 "$SCRIPTDIR/testmlcnn.py" \
+#	"$MODELDIR/combo.model" \
+#	"fi:$DATADIR/fi-${EVALSET}.ft" \
+#    | tee -a "$RESULTDIR/combo-fi.txt"
